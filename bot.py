@@ -10,12 +10,25 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 
 # Завантажуємо токен та JSON з оточення
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-json_content = os.getenv('GOOGLE_CREDENTIALS_JSON')
+#TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+#json_content = os.getenv('GOOGLE_CREDENTIALS_JSON')
 
 
 
-CREDS_FILE = "credentials.json"
+#CREDS_FILE = "credentials.json"
+import os
+import base64
+
+# Отримуємо ключ із змінної
+credentials_base64 = os.getenv("GOOGLE_CREDENTIALS_BASE64")
+
+if not credentials_base64:
+    raise Exception("GOOGLE_CREDENTIALS_BASE64 not set")
+
+# Розпаковуємо у файл
+with open("credentials.json", "wb") as f:
+    f.write(base64.b64decode(credentials_base64))
+
 
 # Підключення до Google Sheets
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
