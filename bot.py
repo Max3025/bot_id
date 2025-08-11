@@ -16,18 +16,26 @@ json_content = os.getenv('GOOGLE_CREDENTIALS_JSON')
 CREDS_FILE = "credentials.json"
 
 # === Створюємо credentials.json з оточення ===
-if json_content:
+if not json_content:
+    raise RuntimeError("❌ GOOGLE_CREDENTIALS_JSON не встановлено або порожнє!")
+
+try:
+    # Перетворюємо \n у реальні переноси рядків
+    json_content = json_content.replace("\\n", "\n")
+    
+    # Перевірка, що це валідний JSON
+    creds_data = json.loads(json_content)
+
     with open(CREDS_FILE, "w", encoding="utf-8") as f:
         f.write(json_content)
-else:
-    raise RuntimeError("❌ GOOGLE_CREDENTIALS_JSON не встановлено в оточенні!")
+except Exception as e:
+    raise RuntimeError(f"❌ Помилка при створенні credentials.json: {e}")
 
 # Підключення до Google Sheets
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 SPREADSHEET_NAME = 'AccountsList'
 SHEET_NAME = 'Аркуш1'
 
-# Логування
 logging.basicConfig(level=logging.INFO)
 
 # Підключення до таблиці
@@ -68,7 +76,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❗ Не знайдено жодного ID.")
     except Exception as e:
         await update.message.reply_text(f"❌ Помилка: {str(e)}")
-        print("Помилка при обробці:", e)
+        logging.error(f"Помилка при обробці: {e}")
 
 # Запуск бота
 if __name__ == '__main__':
