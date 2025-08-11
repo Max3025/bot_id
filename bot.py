@@ -13,9 +13,14 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 json_content = os.getenv('GOOGLE_CREDENTIALS_JSON')
 
-
-
 CREDS_FILE = "credentials.json"
+
+# === Створюємо credentials.json з оточення ===
+if json_content:
+    with open(CREDS_FILE, "w", encoding="utf-8") as f:
+        f.write(json_content)
+else:
+    raise RuntimeError("❌ GOOGLE_CREDENTIALS_JSON не встановлено в оточенні!")
 
 # Підключення до Google Sheets
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
