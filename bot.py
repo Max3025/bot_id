@@ -97,21 +97,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Довідка
         if text.lower() == '/help' or text.lower() == '/start':
             help_text = (
-                "🤖 **Бот для роботи з Google Таблицями**\n\n"
-                "**Команди:**\n"
+                "🤖 Бот для роботи з Google Таблицями\n\n"
+                "Команди:\n"
                 "/help - ця довідка\n"
                 "/test - перевірка підключення\n"
                 "/time - поточний час\n"
                 "/status - статус бота\n\n"
-                "**Як користуватися:**\n"
-                "Надішліть рядки з ID та соціальними мережами:\n"
-                "```\n"
+                "Як користуватися:\n"
+                "Надішліть рядки з ID та соціальними мережами:\n\n"
                 "123456 Instagram\n"
-                "789012 TikTok\n"
-                "```\n\n"
+                "789012 TikTok\n\n"
                 "⏰ Робочий час: 08:00 - 24:00"
             )
-            await update.message.reply_text(help_text, parse_mode='Markdown')
+            await update.message.reply_text(help_text)
             return
             
         # Статус бота
@@ -119,7 +117,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             now = datetime.datetime.now()
             is_working = is_work_time()
             status_text = (
-                f"📊 **Статус бота**\n\n"
+                f"📊 Статус бота\n\n"
                 f"🕐 Поточний час: {now.hour:02d}:{now.minute:02d}\n"
                 f"📅 Дата: {now.strftime('%Y-%m-%d')}\n"
                 f"⚡ Статус: {'🟢 Працює' if is_working else '🔴 Не працює'}\n"
@@ -128,7 +126,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not is_working:
                 next_start = get_next_work_start()
                 status_text += f"\n🌅 Наступний запуск: {next_start.strftime('%H:%M')}"
-            await update.message.reply_text(status_text, parse_mode='Markdown')
+            await update.message.reply_text(status_text)
             return
             
         lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -136,17 +134,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not lines:
             await update.message.reply_text(
                 "Надішли рядки з ID і соц.\n\n"
-                "**Приклад:**\n"
-                "```\n"
+                "Приклад:\n"
                 "123456 Instagram\n"
-                "789012 TikTok\n"
-                "```\n\n"
-                "**Команди:**\n"
+                "789012 TikTok\n\n"
+                "Команди:\n"
                 "/help - довідка\n"
                 "/test - тест підключення\n" 
                 "/time - поточний час\n"
-                "/status - статус бота",
-                parse_mode='Markdown'
+                "/status - статус бота"
             )
             return
 
