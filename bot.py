@@ -54,12 +54,63 @@ def get_next_work_start():
 def get_credentials():
     """Створюємо credentials напряму з JSON string"""
     try:
-        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+        logging.info(f"JSON type: {type(GOOGLE_CREDENTIALS_JSON)}")
+        logging.info(f"JSON length: {len(GOOGLE_CREDENTIALS_JSON)}")
+        logging.info(f"First 100 chars: {GOOGLE_CREDENTIALS_JSON[:100]}")
+        
+        # Спробуємо різні способи парсингу
+        creds_dict = None
+        
+        # Спосіб 1: якщо це вже словник
+        if isinstance(GOOGLE_CREDENTIALS_JSON, dict):
+            creds_dict = GOOGLE_CREDENTIALS_JSON
+            logging.info("✅ JSON вже є словником")
+        else:
+            # Спосіб 2: парсимо як JSON string
+            try:
+                creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+                logging.info("✅ JSON розпарсено успішно")
+            except json.JSONDecodeError as e:
+                logging.warning(f"❌ Помилка парсингу JSON: {e}")
+                
+                # Спосіб 3: очищуємо та парсимо
+                try:
+                    cleaned_json = GOOGLE_CREDENTIALS_JSON.strip().replace('\n', '').replace('\r', '')
+                    creds_dict = json.loads(cleaned_json)
+                    logging.info("✅ JSON розпарсено після очищення")
+                except json.JSONDecodeError as e2:
+                    logging.warning(f"❌ Помилка після очищення: {e2}")
+                    
+                    # Спосіб 4: decode escape sequences
+                    try:
+                        decoded_json = GOOGLE_CREDENTIALS_JSON.encode().decode('unicode_escape')
+                        creds_dict = json.loads(decoded_json)
+                        logging.info("✅ JSON розпарсено після декодування")
+                    except Exception as e3:
+                        logging.error(f"❌ Всі способи не вдалися: {e3}")
+                        raise
+        
+        if not creds_dict or not isinstance(creds_dict, dict):
+            raise ValueError("Не вдалося отримати валідний словник з JSON")
+            
+        # Перевіряємо обов'язкові поля
+        required_fields = ['type', 'project_id', 'private_key', 'client_email']
+        missing_fields = [field for field in required_fields if field not in creds_dict]
+        
+        if missing_fields:
+            raise ValueError(f"Відсутні обов'язкові поля: {missing_fields}")
+            
+        logging.info(f"✅ Знайдені поля: {list(creds_dict.keys())}")
+        logging.info(f"✅ Client email: {creds_dict.get('client_email', 'N/A')}")
+        
+        # Створюємо credentials
         credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
         logging.info("✅ Credentials створено успішно")
         return credentials
+        
     except Exception as e:
         logging.error(f"❌ Помилка створення credentials: {e}")
+        logging.error(f"GOOGLE_CREDENTIALS_JSON type: {type(GOOGLE_CREDENTIALS_JSON)}")
         raise
 
 def connect_sheet():
