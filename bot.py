@@ -9,7 +9,7 @@ import signal
 import sys
 from google.oauth2.service_account import Credentials
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
 # === Завантажуємо токен та JSON з оточення ===
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -54,54 +54,92 @@ def get_next_work_start():
 def get_credentials():
     """Створюємо credentials напряму з JSON string"""
     try:
+        logging.info("=== ДІАГНОСТИКА JSON ===")
         logging.info(f"JSON type: {type(GOOGLE_CREDENTIALS_JSON)}")
         logging.info(f"JSON length: {len(GOOGLE_CREDENTIALS_JSON)}")
-        logging.info(f"First 100 chars: {GOOGLE_CREDENTIALS_JSON[:100]}")
+        logging.info(f"First 200 chars: {repr(GOOGLE_CREDENTIALS_JSON[:200])}")
+        logging.info(f"Last 100 chars: {repr(GOOGLE_CREDENTIALS_JSON[-100:])}")
         
-        # Спробуємо різні способи парсингу
+        # Перевіряємо що це не порожня строка
+        if not GOOGLE_CREDENTIALS_JSON or len(GOOGLE_CREDENTIALS_JSON.strip()) == 0:
+            raise ValueError("JSON змінна порожня!")
+            
         creds_dict = None
+        json_str = GOOGLE_CREDENTIALS_JSON.strip()
         
-        # Спосіб 1: якщо це вже словник
-        if isinstance(GOOGLE_CREDENTIALS_JSON, dict):
-            creds_dict = GOOGLE_CREDENTIALS_JSON
+        # Якщо це вже словник
+        if isinstance(json_str, dict):
+            creds_dict = json_str
             logging.info("✅ JSON вже є словником")
         else:
-            # Спосіб 2: парсимо як JSON string
+            # Метод 1: прямий парсинг
             try:
-                creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-                logging.info("✅ JSON розпарсено успішно")
+                creds_dict = json.loads(json_str)
+                logging.info("✅ Метод 1: прямий парсинг успішний")
             except json.JSONDecodeError as e:
-                logging.warning(f"❌ Помилка парсингу JSON: {e}")
+                logging.warning(f"❌ Метод 1 не вдався: {e}")
                 
-                # Спосіб 3: очищуємо та парсимо
+                # Метод 2: видаляємо зайві символи
                 try:
-                    cleaned_json = GOOGLE_CREDENTIALS_JSON.strip().replace('\n', '').replace('\r', '')
-                    creds_dict = json.loads(cleaned_json)
-                    logging.info("✅ JSON розпарсено після очищення")
+                    cleaned = json_str.replace('\r', '').replace('\n', '').replace('\t', '')
+                    # Видаляємо подвійні пробіли
+                    while '  ' in cleaned:
+                        cleaned = cleaned.replace('  ', ' ')
+                    creds_dict = json.loads(cleaned)
+                    logging.info("✅ Метод 2: очищення успішне")
                 except json.JSONDecodeError as e2:
-                    logging.warning(f"❌ Помилка після очищення: {e2}")
+                    logging.warning(f"❌ Метод 2 не вдався: {e2}")
                     
-                    # Спосіб 4: decode escape sequences
+                    # Метод 3: decode escape sequences
                     try:
-                        decoded_json = GOOGLE_CREDENTIALS_JSON.encode().decode('unicode_escape')
-                        creds_dict = json.loads(decoded_json)
-                        logging.info("✅ JSON розпарсено після декодування")
+                        decoded = json_str.encode('utf-8').decode('unicode_escape')
+                        creds_dict = json.loads(decoded)
+                        logging.info("✅ Метод 3: декодування успішне")
                     except Exception as e3:
-                        logging.error(f"❌ Всі способи не вдалися: {e3}")
-                        raise
+                        logging.warning(f"❌ Метод 3 не вдався: {e3}")
+                        
+                        # Метод 4: перевіряємо чи це escaped JSON
+                        try:
+                            # Якщо JSON був escaped як string
+                            if json_str.startswith('"') and json_str.endswith('"'):
+                                unescaped = json.loads(json_str)  # Розпаковуємо escaped string
+                                creds_dict = json.loads(unescaped)  # Потім парсимо JSON
+                                logging.info("✅ Метод 4: розпакування escaped JSON успішне")
+                            else:
+                                raise ValueError("JSON має неправильний формат")
+                        except Exception as e4:
+                            logging.error(f"❌ Всі методи не вдалися. Останній: {e4}")
+                            
+                            # Показуємо частину JSON для діагностики
+                            sample = json_str[:500] if len(json_str) > 500 else json_str
+                            logging.error(f"JSON sample: {repr(sample)}")
+                            raise ValueError(f"Не вдалося розпарсити JSON. Перевірте формат у Railway Variables. Помилка: {e}")
         
-        if not creds_dict or not isinstance(creds_dict, dict):
-            raise ValueError("Не вдалося отримати валідний словник з JSON")
+        # Перевіряємо що отримали словник
+        if not isinstance(creds_dict, dict):
+            logging.error(f"❌ Результат не словник: {type(creds_dict)}")
+            raise ValueError(f"JSON розпарсився не як словник, а як {type(creds_dict)}")
             
+        logging.info(f"✅ Отримано словник з {len(creds_dict)} полями")
+        logging.info(f"Ключі: {list(creds_dict.keys())}")
+        
         # Перевіряємо обов'язкові поля
-        required_fields = ['type', 'project_id', 'private_key', 'client_email']
+        required_fields = ['type', 'project_id', 'private_key', 'client_email', 'client_id']
         missing_fields = [field for field in required_fields if field not in creds_dict]
         
         if missing_fields:
+            logging.error(f"❌ Відсутні поля: {missing_fields}")
+            logging.error(f"Наявні поля: {list(creds_dict.keys())}")
             raise ValueError(f"Відсутні обов'язкові поля: {missing_fields}")
             
-        logging.info(f"✅ Знайдені поля: {list(creds_dict.keys())}")
+        # Перевіряємо що ключі не порожні
+        empty_fields = [field for field in required_fields if not creds_dict.get(field)]
+        if empty_fields:
+            logging.error(f"❌ Порожні поля: {empty_fields}")
+            raise ValueError(f"Поля не можуть бути порожніми: {empty_fields}")
+            
         logging.info(f"✅ Client email: {creds_dict.get('client_email', 'N/A')}")
+        logging.info(f"✅ Project ID: {creds_dict.get('project_id', 'N/A')}")
         
         # Створюємо credentials
         credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
@@ -109,8 +147,7 @@ def get_credentials():
         return credentials
         
     except Exception as e:
-        logging.error(f"❌ Помилка створення credentials: {e}")
-        logging.error(f"GOOGLE_CREDENTIALS_JSON type: {type(GOOGLE_CREDENTIALS_JSON)}")
+        logging.error(f"❌ Критична помилка створення credentials: {e}")
         raise
 
 def connect_sheet():
@@ -125,61 +162,56 @@ def connect_sheet():
         logging.error(f"❌ Помилка підключення до Google Sheets: {e}")
         raise
 
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /help або /start"""
+    help_text = (
+        "🤖 Бот для роботи з Google Таблицями\n\n"
+        "Команди:\n"
+        "/help - ця довідка\n"
+        "/test - перевірка підключення\n"
+        "/time - поточний час\n"
+        "/status - статус бота\n\n"
+        "Як користуватися:\n"
+        "Надішліть рядки з ID та соціальними мережами:\n\n"
+        "123456 Instagram\n"
+        "789012 TikTok\n\n"
+        "⏰ Робочий час: 08:00 - 24:00"
+    )
+    await update.message.reply_text(help_text)
+
+async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /test"""
+    try:
+        sheet = connect_sheet()
+        await update.message.reply_text("✅ Підключення до Google Sheets працює!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Помилка підключення: {str(e)}")
+
+async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /time"""
+    now = datetime.datetime.now()
+    await update.message.reply_text(f"🕐 Зараз: {now.hour:02d}:{now.minute:02d}\n📅 Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00")
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /status"""
+    now = datetime.datetime.now()
+    is_working = is_work_time()
+    status_text = (
+        f"📊 Статус бота\n\n"
+        f"🕐 Поточний час: {now.hour:02d}:{now.minute:02d}\n"
+        f"📅 Дата: {now.strftime('%Y-%m-%d')}\n"
+        f"⚡ Статус: {'🟢 Працює' if is_working else '🔴 Не працює'}\n"
+        f"⏰ Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00"
+    )
+    if not is_working:
+        next_start = get_next_work_start()
+        status_text += f"\n🌅 Наступний запуск: {next_start.strftime('%H:%M')}"
+    await update.message.reply_text(status_text)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробка повідомлень"""
+    """Обробка звичайних повідомлень (не команд)"""
     try:
         text = update.message.text.strip()
-        
-        # Тестова команда
-        if text.lower() == '/test':
-            try:
-                sheet = connect_sheet()
-                await update.message.reply_text("✅ Підключення до Google Sheets працює!")
-            except:
-                await update.message.reply_text("❌ Помилка підключення до Google Sheets")
-            return
-            
-        # Команда для перевірки часу
-        if text.lower() == '/time':
-            now = datetime.datetime.now()
-            await update.message.reply_text(f"🕐 Зараз: {now.hour:02d}:{now.minute:02d}\n📅 Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00")
-            return
-            
-        # Довідка
-        if text.lower() == '/help' or text.lower() == '/start':
-            help_text = (
-                "🤖 Бот для роботи з Google Таблицями\n\n"
-                "Команди:\n"
-                "/help - ця довідка\n"
-                "/test - перевірка підключення\n"
-                "/time - поточний час\n"
-                "/status - статус бота\n\n"
-                "Як користуватися:\n"
-                "Надішліть рядки з ID та соціальними мережами:\n\n"
-                "123456 Instagram\n"
-                "789012 TikTok\n\n"
-                "⏰ Робочий час: 08:00 - 24:00"
-            )
-            await update.message.reply_text(help_text)
-            return
-            
-        # Статус бота
-        if text.lower() == '/status':
-            now = datetime.datetime.now()
-            is_working = is_work_time()
-            status_text = (
-                f"📊 Статус бота\n\n"
-                f"🕐 Поточний час: {now.hour:02d}:{now.minute:02d}\n"
-                f"📅 Дата: {now.strftime('%Y-%m-%d')}\n"
-                f"⚡ Статус: {'🟢 Працює' if is_working else '🔴 Не працює'}\n"
-                f"⏰ Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00"
-            )
-            if not is_working:
-                next_start = get_next_work_start()
-                status_text += f"\n🌅 Наступний запуск: {next_start.strftime('%H:%M')}"
-            await update.message.reply_text(status_text)
-            return
-            
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
         if not lines:
@@ -239,6 +271,15 @@ async def run_scheduled_bot():
             
             # Створюємо додаток
             app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+            
+            # Додаємо обробники команд
+            app.add_handler(CommandHandler("start", cmd_help))
+            app.add_handler(CommandHandler("help", cmd_help))
+            app.add_handler(CommandHandler("test", cmd_test))
+            app.add_handler(CommandHandler("time", cmd_time))
+            app.add_handler(CommandHandler("status", cmd_status))
+            
+            # Додаємо обробник звичайних повідомлень
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
             
             try:
