@@ -28,20 +28,35 @@ SCOPE = [
 SPREADSHEET_NAME = 'AccountsList'
 SHEET_NAME = 'Аркуш1'
 
-# Робочі години
+# Налаштування таймзони - різниця з UTC в годинах
+# Для України (UTC+2 зимой, UTC+3 літом) - зараз літо, тому +3
+TIMEZONE_OFFSET_HOURS = 3  # Змініть на вашу різницю з UTC
+
+# Альтернативно можете використати pytz (якщо встановлена):
+# import pytz
+# TIMEZONE = pytz.timezone('Europe/Kiev')
+
+# Робочі години (у вашій місцевій таймзоні)
 WORK_START_HOUR = 8   # 8:00
 WORK_END_HOUR = 24    # 24:00 (0:00 наступного дня)
 
 logging.basicConfig(level=logging.INFO)
 
+def get_local_time():
+    """Отримує поточний час у встановленій таймзоні"""
+    utc_now = datetime.datetime.utcnow()
+    local_time = utc_now + datetime.timedelta(hours=TIMEZONE_OFFSET_HOURS)
+    return local_time
+
 def is_work_time():
-    """Перевіряє чи зараз робочий час"""
-    current_hour = datetime.datetime.now().hour
+    """Перевіряє чи зараз робочий час у місцевій таймзоні"""
+    current_time = get_local_time()
+    current_hour = current_time.hour
     return WORK_START_HOUR <= current_hour < WORK_END_HOUR
 
 def get_next_work_start():
-    """Повертає час наступного початку робочого дня"""
-    now = datetime.datetime.now()
+    """Повертає час наступного початку робочого дня у місцевій таймзоні"""
+    now = get_local_time()
     next_start = now.replace(hour=WORK_START_HOUR, minute=0, second=0, microsecond=0)
     
     # Якщо вже пізніше робочого часу, то наступний день
@@ -98,15 +113,32 @@ def get_credentials():
                     except Exception as e3:
                         logging.warning(f"❌ Метод 3 не вдався: {e3}")
                         
-                        # Метод 4: перевіряємо чи це escaped JSON
+                        # Метод 4: подвійний парсинг для escaped JSON
                         try:
-                            # Якщо JSON був escaped як string
+                            # Якщо JSON був escaped як string у Railway
                             if json_str.startswith('"') and json_str.endswith('"'):
-                                unescaped = json.loads(json_str)  # Розпаковуємо escaped string
-                                creds_dict = json.loads(unescaped)  # Потім парсимо JSON
-                                logging.info("✅ Метод 4: розпакування escaped JSON успішне")
+                                # Перший парсинг: розпаковуємо escaped string
+                                unescaped = json.loads(json_str)
+                                logging.info(f"Після першого парсингу: {type(unescaped)} - {repr(unescaped[:100])}")
+                                
+                                # Другий парсинг: парсимо сам JSON
+                                if isinstance(unescaped, str):
+                                    creds_dict = json.loads(unescaped)
+                                    logging.info("✅ Метод 4: подвійний парсинг успішний")
+                                else:
+                                    creds_dict = unescaped
+                                    logging.info("✅ Метод 4: перший парсинг достатній")
                             else:
-                                raise ValueError("JSON має неправильний формат")
+                                # Пробуємо подвійний парсинг навіть без лапок
+                                try:
+                                    first_parse = json.loads(json_str)
+                                    if isinstance(first_parse, str):
+                                        creds_dict = json.loads(first_parse)
+                                        logging.info("✅ Метод 4b: подвійний парсинг без лапок успішний")
+                                    else:
+                                        raise ValueError("Перший парсинг не дав строку")
+                                except:
+                                    raise ValueError("JSON має неправильний формат")
                         except Exception as e4:
                             logging.error(f"❌ Всі методи не вдалися. Останній: {e4}")
                             
@@ -175,7 +207,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Надішліть рядки з ID та соціальними мережами:\n\n"
         "123456 Instagram\n"
         "789012 TikTok\n\n"
-        "⏰ Робочий час: 08:00 - 24:00"
+        f"⏰ Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00 (UTC+{TIMEZONE_OFFSET_HOURS})"
     )
     await update.message.reply_text(help_text)
 
@@ -183,23 +215,38 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /test"""
     try:
         sheet = connect_sheet()
-        await update.message.reply_text("✅ Підключення до Google Sheets працює!")
+        local_time = get_local_time()
+        await update.message.reply_text(
+            f"✅ Підключення до Google Sheets працює!\n"
+            f"🕐 Час сервера: {local_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"🌍 Таймзона: UTC+{TIMEZONE_OFFSET_HOURS}"
+        )
     except Exception as e:
         await update.message.reply_text(f"❌ Помилка підключення: {str(e)}")
 
 async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /time"""
-    now = datetime.datetime.now()
-    await update.message.reply_text(f"🕐 Зараз: {now.hour:02d}:{now.minute:02d}\n📅 Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00")
+    local_time = get_local_time()
+    utc_time = datetime.datetime.utcnow()
+    
+    time_info = (
+        f"🕐 Місцевий час: {local_time.strftime('%H:%M:%S')}\n"
+        f"🌍 Дата: {local_time.strftime('%Y-%m-%d')}\n"
+        f"🌐 UTC час: {utc_time.strftime('%H:%M:%S')}\n"
+        f"⏰ Таймзона: UTC+{TIMEZONE_OFFSET_HOURS}\n"
+        f"📅 Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00"
+    )
+    await update.message.reply_text(time_info)
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /status"""
-    now = datetime.datetime.now()
+    local_time = get_local_time()
     is_working = is_work_time()
     status_text = (
         f"📊 Статус бота\n\n"
-        f"🕐 Поточний час: {now.hour:02d}:{now.minute:02d}\n"
-        f"📅 Дата: {now.strftime('%Y-%m-%d')}\n"
+        f"🕐 Поточний час: {local_time.strftime('%H:%M:%S')}\n"
+        f"📅 Дата: {local_time.strftime('%Y-%m-%d')}\n"
+        f"🌍 Таймзона: UTC+{TIMEZONE_OFFSET_HOURS}\n"
         f"⚡ Статус: {'🟢 Працює' if is_working else '🔴 Не працює'}\n"
         f"⏰ Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00"
     )
@@ -229,7 +276,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         sheet = connect_sheet()
-        date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        # Використовуємо місцевий час для дати
+        date_str = get_local_time().strftime("%Y-%m-%d")
         count = 0
         
         for line in lines:
@@ -265,9 +313,18 @@ async def run_scheduled_bot():
     """Запускає бота тільки в робочий час"""
     shutdown_handler = GracefulShutdown()
     
+    # Виводимо інформацію про таймзону при запуску
+    local_time = get_local_time()
+    utc_time = datetime.datetime.utcnow()
+    logging.info(f"🌍 Налаштована таймзона: UTC+{TIMEZONE_OFFSET_HOURS}")
+    logging.info(f"🕐 Місцевий час: {local_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logging.info(f"🌐 UTC час: {utc_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logging.info(f"⏰ Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00")
+    
     while not shutdown_handler.shutdown:
         if is_work_time():
-            logging.info(f"🟢 Запускаємо бота - робочий час ({datetime.datetime.now().hour:02d}:00)")
+            current_time = get_local_time()
+            logging.info(f"🟢 Запускаємо бота - робочий час ({current_time.strftime('%H:%M')})")
             
             # Створюємо додаток
             app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -298,7 +355,8 @@ async def run_scheduled_bot():
                 await app.shutdown()
                 
                 if not shutdown_handler.shutdown:
-                    logging.info("🔴 Зупинили бота - кінець робочого дня")
+                    current_time = get_local_time()
+                    logging.info(f"🔴 Зупинили бота - кінець робочого дня ({current_time.strftime('%H:%M')})")
                 
             except Exception as e:
                 logging.error(f"❌ Помилка при роботі бота: {e}")
@@ -307,7 +365,7 @@ async def run_scheduled_bot():
         else:
             # Не робочий час - чекаємо
             next_start = get_next_work_start()
-            now = datetime.datetime.now()
+            now = get_local_time()
             sleep_seconds = (next_start - now).total_seconds()
             
             logging.info(f"😴 Бот спить до {next_start.strftime('%H:%M')} ({sleep_seconds/3600:.1f} год)")
