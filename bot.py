@@ -206,7 +206,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Як користуватися:\n"
         "Надішліть ID акаунта, якщо хочете додати додаткову інформацію про соц або вебнейм - то записуйте все в один рядок:\n\n"
         "1232145 вебнейм/ агенство\n"
-        "789012 Instagram\n\n"
         f"⏰ Робочий час: {WORK_START_HOUR:02d}:00 - {WORK_END_HOUR:02d}:00 (UTC+{TIMEZONE_OFFSET_HOURS})"
     )
     await update.message.reply_text(help_text)
